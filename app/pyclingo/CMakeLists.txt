@@ -56,9 +56,18 @@ if (PYCLINGO_INSTALL_DIR)
     install(TARGETS pyclingo
         RUNTIME DESTINATION ${_PYCLINGO_INSTALL_DIR}
         LIBRARY DESTINATION ${_PYCLINGO_INSTALL_DIR})
-    install(DIRECTORY ${CMAKE_SOURCE_DIR}/libpyclingo/clingo/
-        DESTINATION ${_PYCLINGO_INSTALL_DIR}/clingo
-        FILES_MATCHING
-        PATTERN "*.pyi"
-        PATTERN "*.typed")
+    if (NOT SKBUILD)
+        install(DIRECTORY ${CMAKE_SOURCE_DIR}/libpyclingo/clingo/
+            DESTINATION ${_PYCLINGO_INSTALL_DIR}/clingo
+            FILES_MATCHING
+            PATTERN "*.pyi"
+            PATTERN "*.typed")
+    else()
+        install(DIRECTORY ${CMAKE_SOURCE_DIR}/libpyclingo/clingo/
+            DESTINATION ${_PYCLINGO_INSTALL_DIR}
+            FILES_MATCHING
+            PATTERN "*.py"
+            PATTERN "*.pyi"
+            PATTERN "*.typed")
+    endif()
 endif()
