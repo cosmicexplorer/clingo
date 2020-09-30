@@ -5618,7 +5618,7 @@ struct AST : ObjectBase<AST> {
     static PyGetSetDef tp_getset[];
     static constexpr char const *tp_type = "AST";
     static constexpr char const *tp_name = "clingo.ast.AST";
-    static constexpr char const *tp_doc = R"(AST(type: ASTType, **arguments: Mapping[str,Any]) -> AST
+    static constexpr char const *tp_doc = R"(AST(type: ASTType, **arguments: Any) -> AST
 Represents a node in the abstract syntax tree.
 
 AST nodes implement Python's rich comparison operators and are ordered
@@ -5631,7 +5631,7 @@ Parameters
 ----------
 type : ASTType
     The type of the onde.
-arguments : Mapping[str,Any]
+**arguments : Any
     Additionally, the functions takes an arbitrary number of keyword arguments.
     These should contain the required fields of the node but can also be set
     later.
@@ -7672,7 +7672,7 @@ Extend the statistics array with the given values.
 
 Paremeters
 ----------
-values : Sequence[Any]
+values : Iterable[Any]
     A sequence of nested structures composed of floats, sequences, and
     mappings.
 
@@ -7686,13 +7686,13 @@ append
 )"},
     // update
     {"update", to_function<&StatisticsArray::update>(), METH_O,
-R"(update(self, values: Sequence[Any]) -> None
+R"(update(self, values: Iterable[Any]) -> None
 
 Update a statistics array.
 
 Parameters
 ----------
-values : Sequence[Any]
+values : Iterable[Any]
     A sequence of nested structures composed of floats, callable, sequences,
     and mappings. A callable can be used to update an existing value, it
     receives the previous numeric value (or None if absent) as argument and
