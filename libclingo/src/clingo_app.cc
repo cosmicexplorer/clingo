@@ -161,80 +161,9 @@ Clasp::ProblemType ClingoApp::getProblemType() {
     return Clasp::ClaspFacade::detectProblemType(getStream());
 }
 
-// TODO: the code below is annoying. There is too much copy and paste. The
-// easiest way would be if the textoutput would already provide something to
-// customize the output.
-namespace {
-
-class CustomTextOutput : public Clasp::Cli::TextOutput {
-public:
-    CustomTextOutput(std::unique_ptr<ClingoControl> &ctl, IClingoApp &app, Clasp::uint32 verbosity, Format f, const char* catAtom = 0, char ifs = ' ')
-    : TextOutput(verbosity, f, catAtom, ifs), ctl_(ctl), app_(app) { }
-
-protected:
-    void printModel(const Clasp::OutputTable& out, const Clasp::Model& m, PrintLevel x) override {
-        if (ctl_) {
-            if (x == modelQ()) {
-                comment(1, "%s: %" PRIu64"\n", !m.up ? "Answer" : "Update", m.num);
-                ClingoModel cm(*ctl_, &m);
-                std::lock_guard<decltype(ctl_->propLock_)> lock(ctl_->propLock_);
-                app_.print_model(&cm, [&]() { printValues(out, m); });
-            }
-            if (x == optQ()) {
-                printMeta(out, m);
-            }
-            fflush(stdout);
-        }
-        else { Clasp::Cli::TextOutput::printModel(out, m, x); }
-    }
-private:
-    std::unique_ptr<ClingoControl> &ctl_;
-    IClingoApp &app_;
-};
-
-} // namespace
-
 ClingoApp::ClaspOutput* ClingoApp::createOutput(ProblemType f) {
     if (mode_ == mode_gringo) return 0;
-    using namespace Clasp;
-    using namespace Clasp::Cli;
-    SingleOwnerPtr<ClaspOutput> out;
-    if (claspAppOpts_.outf == ClaspAppOptions::out_none) {
-        return 0;
-    }
-    if (claspAppOpts_.outf != ClaspAppOptions::out_json || claspAppOpts_.onlyPre) {
-        TextOutput::Format outFormat = TextOutput::format_asp;
-        if      (f == Problem_t::Sat){ outFormat = TextOutput::format_sat09; }
-        else if (f == Problem_t::Pb) { outFormat = TextOutput::format_pb09;  }
-        else if (f == Problem_t::Asp && claspAppOpts_.outf == ClaspAppOptions::out_comp) {
-            outFormat = TextOutput::format_aspcomp;
-        }
-        if (app_->has_printer()) {
-            out.reset(new CustomTextOutput(grd, *app_, verbose(), outFormat, claspAppOpts_.outAtom.c_str(), claspAppOpts_.ifs));
-        }
-        else {
-            out.reset(new TextOutput(verbose(), outFormat, claspAppOpts_.outAtom.c_str(), claspAppOpts_.ifs));
-        }
-        if (claspConfig_.parse.isEnabled(ParserOptions::parse_maxsat) && f == Problem_t::Sat) {
-            static_cast<TextOutput*>(out.get())->result[TextOutput::res_sat] = "UNKNOWN";
-        }
-    }
-    else {
-        out.reset(new JsonOutput(verbose()));
-    }
-    if (claspAppOpts_.quiet[0] != static_cast<uint8>(UCHAR_MAX)) {
-        out->setModelQuiet((ClaspOutput::PrintLevel)std::min(uint8(ClaspOutput::print_no), claspAppOpts_.quiet[0]));
-    }
-    if (claspAppOpts_.quiet[1] != static_cast<uint8>(UCHAR_MAX)) {
-        out->setOptQuiet((ClaspOutput::PrintLevel)std::min(uint8(ClaspOutput::print_no), claspAppOpts_.quiet[1]));
-    }
-    if (claspAppOpts_.quiet[2] != static_cast<uint8>(UCHAR_MAX)) {
-        out->setCallQuiet((ClaspOutput::PrintLevel)std::min(uint8(ClaspOutput::print_no), claspAppOpts_.quiet[2]));
-    }
-    if (claspAppOpts_.hideAux && clasp_.get()) {
-        clasp_->ctx.output.setFilter('_');
-    }
-    return out.release();
+    return BaseType::createOutput(f);
 }
 
 void ClingoApp::printHelp(const Potassco::ProgramOptions::OptionContext& root) {
@@ -294,4 +223,3 @@ void ClingoApp::run(Clasp::ClaspFacade& clasp) {
 // }}}
 
 } // namespace Gringo
-
