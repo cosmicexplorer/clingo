@@ -14,7 +14,7 @@
 
 # Requirements
 
-- a c++14 conforming compiler
+- a c++11 conforming compiler
   - *at least* [gcc](https://gcc.gnu.org/) version 4.9
   - [clang](http://clang.llvm.org/) version 3.1 (using either libstdc++
     provided by gcc 4.9 or libc++)
@@ -78,7 +78,7 @@ Cmake's `-L` option can be used to get an overview over the variables that can
 be set for building gringo/clingo. To get gringo/clingo specific options, run
 
     cmake -H<SOURCE_DIR> -B<BUILD_DIR> -DCMAKE_BUILD_TYPE=Release -LH
-    
+
 or, to also print important cmake specific configuration variables
 
     cmake -H<SOURCE_DIR> -B<BUILD_DIR> -DCMAKE_BUILD_TYPE=Release -LAH
