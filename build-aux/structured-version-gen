@@ -1,0 +1,807 @@
+#!/bin/sh
+# Print a version string.
+scriptversion=2026-06-19.18; # UTC
+
+# Copyright (C) 2026 Free Software Foundation, Inc.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+export me=$0
+export my_name=`basename "$me"`
+
+export LC_ALL='C'
+
+_log() {
+  case $# in
+    0)
+      cat >&2
+      ;;
+    1)
+      printf '%s\n' "$1" >&2
+      ;;
+    *)
+      printf "$@" >&2
+      ;;
+  esac
+}
+
+export _default_verbosity='warn'
+export verbosity=${VERBOSITY:-${_default_verbosity}}
+case "$verbosity" in
+  quiet|warn|info|trace);;
+  *)
+    _log <<EOF
+provided value was invalid (must be within {quiet|warn|info|trace}):
+------------------------
+VERBOSITY='${VERBOSITY}'
+------------------------
+it has been defaulted:
+========================
+VERBOSITY='${_default_verbosity}'
+========================
+EOF
+    export verbosity=${_default_verbosity}
+    ;;
+esac
+if test x"$verbosity" = xtrace; then
+  set -x
+fi
+
+_print_verbosity_env_var() {
+  case "${VERBOSITY:-}" in
+    '')
+      printf "'%s' (default)\n" "$_default_verbosity"
+      ;;
+    quiet|warn|info|trace)
+      printf "'%s' (set in environment)\n" "$VERBOSITY"
+      ;;
+    *)
+      printf "'%s' (forced default: environment value of '%s' was invalid!)\n" \
+             "$_default_verbosity" "$VERBOSITY"
+      ;;
+  esac
+}
+
+export _default_base_version_filename='.base-version'
+export _default_version_to_ref_sed_script='s/^/v/ ; p'
+export _default_local_modification_suffix='~untracked'
+
+export override_version=${OVERRIDE_VERSION:-}
+export base_version=${BASE_VERSION:-@${_default_base_version_filename}}
+export version_to_ref_sed_script=${VERSION_TO_REF:-${_default_version_to_ref_sed_script}}
+export local_modification_suffix=${LOCAL_MODIFICATION_SUFFIX:-${_default_local_modification_suffix}}
+
+_print_override_version_env_var() {
+  if test x"${OVERRIDE_VERSION:-}" = x; then
+    printf ' (unset)\n'
+  else
+    printf "'%s' (set in environment)\n" "$OVERRIDE_VERSION"
+  fi
+}
+_print_base_version_env_var() {
+  if test x"${BASE_VERSION:-}" = x; then
+    printf "'%s' (default)\n" "@${_default_base_version_filename}"
+  else
+    printf "'%s' (set in environment)\n" "$BASE_VERSION"
+  fi
+}
+_print_version_to_ref_env_var() {
+  if test x"${VERSION_TO_REF:-}" = x; then
+    printf "'%s' (default)\n" "$_default_version_to_ref_sed_script"
+  else
+    printf "'%s' (set in environment)\n" "$VERSION_TO_REF"
+  fi
+}
+_print_local_mod_suffix_env_var() {
+  if test x"${LOCAL_MODIFICATION_SUFFIX:-}" = x; then
+    printf "'%s' (default)\n" "$_default_local_modification_suffix"
+  else
+    printf "'%s' (set in environment)\n" "$LOCAL_MODIFICATION_SUFFIX"
+  fi
+}
+
+export _default_git_name=git
+export _defaulted_git=${GIT:-${_default_git_name}}
+export _default_sed_name=sed
+export _defaulted_sed=${SED:-${_default_sed_name}}
+
+_compute_exe_path() {
+  (
+    _pfx_default="export ${EXE_VAR}"=
+    pfx=${DECL_PREFIX:-$_pfx_default}
+    for _path in `command -v "$@"`; do
+      printf "%s'%s'\\n" "$pfx" "$_path"
+      exit
+    done
+    printf '_fail "could not find value for \$%s from args [%s]"\n' \
+           "$EXE_VAR" "$@"
+  )
+}
+
+_print_git_env_var() {
+  if test x"${GIT:-}" = x; then
+    printf "'%s' (default)" "$_default_git_name"
+  else
+    printf "'%s' (set in environment)" "$GIT"
+  fi
+}
+_print_git_value() {
+  printf "'%s'\n" \
+         "$(set +x; eval `DECL_PREFIX='echo ' EXE_VAR=GIT _compute_exe_path "${_defaulted_git}"` 2>&1)"
+}
+
+_print_sed_env_var() {
+  if test x"${SED:-}" = x; then
+    printf "'%s' (default)" "$_default_sed_name"
+  else
+    printf "'%s' (set in environment)" "$SED"
+  fi
+}
+_print_sed_value() {
+  printf "'%s'\n" \
+         "$(set +x; eval `DECL_PREFIX='echo ' EXE_VAR=SED _compute_exe_path "${_defaulted_sed}"` 2>&1)"
+}
+
+require_branch=n
+require_tag=y
+require_tag_annotated=y
+require_routed=n
+require_unmodified=n
+
+print_version() {
+  year=`expr "$scriptversion" : '\([^-]*\)'`
+  cat <<EOF
+${my_name} ${scriptversion}
+
+Copyright (C) ${year} Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+EOF
+}
+
+usage_explanation() {
+  cat <<EOF
+Usage: ${my_name} [OPTION]...
+
+Print a version string calculated with reference to a base version.
+Later options override earlier ones, and defaults can be set via environment variable.
+
+"Annotated" git tags are generated with \`git tag --annotate ...\`.
+
+There are no non-option arguments.
+
+Options:
+
+    OVERRIDE_VERSION=`_print_override_version_env_var`
+    --override-version OVERRIDE_VERSION
+    --override-version=OVERRIDE_VERSION
+        If provided by command line or environment variable:
+        - completely avoid performing any calculations,
+        - echo the value to stdout,
+        - exit zero.
+
+        This is very helpful for one-off releases that don't follow typical rules.
+        Note that an empty string value is interpreted the same as an unset value.
+
+        Also note that unlike --base-version, this argument does *not* support
+        reading from a file path with '@'.
+
+    BASE_VERSION=`_print_base_version_env_var`
+    -bv, --base-version BASE_VERSION
+    --base-version=BASE_VERSION
+        Provide the version string used as a prefix for the version computed by this file.
+
+        This usually consists of two nonnegative integers, in the <major>.<minor> format,
+        but the only requirement this script imposes is that it not be empty.
+
+        A value beginning with @ will be interpreted as a file path to read from.
+        A single trailing newline will be stripped from the output, if present.
+        If the file path does not exist or is unreadable for some reason,
+        the script will write a message to stderr and exit nonzero.
+
+    VERSION_TO_REF=`_print_version_to_ref_env_var`
+    -v2r, --version-to-ref VERSION_TO_REF
+    --version-to-ref=VERSION_TO_REF
+        This applies a sed regex transform operation to the base version
+        to obtain a git reference. The arguments -n and -E will be applied.
+
+        By default, this will prefix the base version with 'v'.
+
+        If the sed invocation exits nonzero, this script will print a message to stderr
+        and exit nonzero.
+
+        A value beginning with @ will be interpreted as a file path
+        for a sed script, using the '-f' argument:
+        - If the file path does not exist or is unreadable for some reason,
+          the script will write a message to stderr and exit nonzero.
+        - If the file is empty, that also constitutes an error.
+
+        In order to simply use the version string itself as a git ref,
+        set VERSION_TO_REF='p'. This can be done with \`-v2r p\`
+
+    --[no-]require-branch
+    --[no-]require-tag[-annotated]
+    --[no-]require-unmodified
+    --[no-]require-routed
+        This set of flags switches on or off the validity checking
+        performed upon the git reference retrieved by the VERSION_TO_REF transformation
+        upon the BASE_VERSION.
+
+        --require-branch            enforces that the git reference is a branch name.
+        --require-tag               enforces that the git reference is a tag.
+        --require-tag-annotated     enforces that the tag was "annotated".
+                                    (i.e. generated with \`git tag --annotate ...\`)
+
+            Note that:
+            (1) --require-tag-annotated implies --require-tag,
+            (2) --require-tag           implies --no-require-branch,
+            (3) --require-branch        implies --no-require-tag --no-require-tag-annotated
+
+            The defaults are:
+                --require-tag --require-tag-annotated
+
+            If --no-require-branch and --no-require-tag are both set,
+            the object may be any commit reference.
+
+        --require-unmodified        enforces that there are no changes in the local
+                                    git working tree
+        --require-routed            enforces that there is a path from the base version
+                                    git reference to HEAD.
+
+            The defaults are:
+                --no-require-unmodified --no-require-routed
+
+    LOCAL_MODIFICATION_SUFFIX=`_print_local_mod_suffix_env_var`
+    -l, --local-modification-suffix LOCAL_MODIFICATION_SUFFIX
+    --local-modification-suffix=LOCAL_MODIFICATION_SUFFIX
+        This value is appended to the version string if there are any unstashed changes.
+
+        In that case, a message will be printed to stderr.
+
+        A value beginning with @ will be interpreted as a file path to read from.
+        A single trailing newline will be stripped from the output, if present.
+        If the file path does not exist or is unreadable for some reason,
+        the script will write a message to stderr and exit nonzero.
+
+    VERBOSITY=`_print_verbosity_env_var`
+    --verbose=VERBOSITY[={quiet|warn|info|trace}]
+
+        The value of VERBOSITY is constrained to be within the following variants:
+        - quiet = do not print anything to stderr except fatal errors.
+        - warn  = display some nonfatal warnings.
+        - info  = print some messages to stderr about how a version string
+                  was selected.
+        - trace = the same as 'info', but with \`set -x\` active.
+
+    The VERBOSITY setting can also be toggled by these more standard flags:
+
+    -v, --verbose                      sets VERBOSITY='info' from any lower level.
+    -q, --quiet                        sets VERBOSITY='quiet'.
+
+        Note that if --quiet is selected after --verbose='trace',
+        it will \`set +x\`.
+
+        This disables the extremely dense output.
+
+    -h, --help                         display this help and exit
+    -V, --version                      output version information and exit
+
+Environment variables:
+
+    GIT=`_print_git_env_var`
+       => `_print_git_value`
+
+        Executable name or path to call for \`git\` operations.
+
+    SED=`_print_sed_env_var`
+       => `_print_sed_value`
+
+        Executable name or path to call for \`sed\` string transformations.
+
+        The value of \$SED will be executed with the -n and -E options active.
+
+    Executable names will be looked up against the \$PATH environment variable, or otherwise against
+    the working directory of the script when executed.
+
+Exit Status:
+
+    Upon failure, the exit code will range from 1 <= \$? <= 9,
+    incrementing as it progresses through the sequential logic.
+
+Please feel free to send patches and bug reports to <dmc2@amass.energy>.
+You can also try <https://codeberg.org/cosmicexplorer/gnulib/issues/new>!
+EOF
+}
+
+_info() {
+  case "$verbosity" in
+    info|trace) _log "$@";;
+    warn|quiet);;
+    *)
+      _log <<EOF
+internal error at _info(): bad verbosity spec (must be {quiet|warn|info|trace}):
+verbosity='${verbosity}'
+
+the $# args were:
+\$@=[$@]
+EOF
+      exit ${EXIT_CODE:-1}
+      ;;
+  esac
+}
+
+_warn() {
+  case "$verbosity" in
+    warn|info|trace) _log "$@";;
+    quiet);;
+    *)
+      _log <<EOF
+internal error at _warn(): bad verbosity spec (must be {quiet|warn|info|trace}):
+verbosity='${verbosity}'
+
+the $# args were:
+\$@=[$@]
+EOF
+      exit ${EXIT_CODE:-1}
+      ;;
+  esac
+}
+
+_fail() {
+  _log "$@"
+  exit ${EXIT_CODE:-1}
+}
+
+_info "parsing $# options [$@]..."
+while test $# -gt 0; do
+  case $1 in
+    -h|--help) usage_explanation; exit 0;;
+    -V|--version) print_version; exit 0;;
+    --verbose=*)
+      _new_verbosity=${1#--verbose=}
+      case "$_new_verbosity" in
+        quiet|warn|info) set +x;;
+        trace) set -x;;
+        *) _fail <<EOF
+internal error in arg parsing: bad verbosity spec (must be {quiet|warn|info|trace}):
+_new_verbosity='${_new_verbosity}'
+
+the remaining $# args were:
+\$@=[$@]
+EOF
+           ;;
+      esac
+      export verbosity=$_new_verbosity
+      ;;
+    -v|--verbose) verbosity=info;;
+    -q|--quiet) set +x; verbosity=quiet;;
+    --override-version=*) override_version=${1#--override-version=};;
+    --override-version) shift; override_version=${1?};;
+    --base-version=*) base_version=${1#--base-version=};;
+    -bv|--base-version) shift; base_version=${1?};;
+    --version-to-ref=*) version_to_ref_sed_script=${1#--version-to-ref=};;
+    -v2r|--version-to-ref) shift; version_to_ref_sed_script=${1?};;
+    --require-branch) require_branch=y; require_tag=n; require_tag_annotated=n;;
+    --no-require-branch) require_branch=n;;
+    --require-tag) require_tag=y; require_branch=n;;
+    --no-require-tag) require_tag=n;;
+    --require-tag-annotated) require_tag=y; require_tag_annotated=y; require_branch=n;;
+    --no-require-tag-annotated) require_tag_annotated=n;;
+    --require-unmodified) require_unmodified=y;;
+    --no-require-unmodified) require_unmodified=n;;
+    --require-routed) require_routed=y;;
+    --no-require-routed) require_routed=n;;
+    --local-modification-suffix=*) local_modification_suffix=${1#--local-modification-suffix=};;
+    -l|--local-modification-suffix) shift; local_modification_suffix=${1?};;
+    -*)
+      _fail <<EOF
+$0: Unknown option '$1'.
+$0: Try '--help' for more information.
+EOF
+      ;;
+    *)
+      _fail <<EOF
+$0: extra non-option argument '$1'.
+EOF
+      ;;
+  esac
+  shift
+done
+export verbosity=$verbosity
+_info <<EOF
+verbosity:
+-----------------------
+verbosity='${verbosity}'
+EOF
+
+export EXIT_CODE=2
+
+_info 'processing override version...'
+if test x"$override_version" != x; then
+  _info 'override version applied (no relative computation performed)'
+  printf '%s\n' "$override_version"
+  exit 0
+fi
+
+_info 'processing @file options...'
+
+case "$base_version" in
+  @*)
+    _info 'looking up BASE_VERSION from file...'
+    _base_version_file=${base_version#@}
+    test -r "$_base_version_file" \
+      || _fail "could not find base version file at ${_base_version_file}!"
+    base_version=`cat "$_base_version_file"`
+    test x"$base_version" != x \
+      || _fail "base version file at ${_base_version_file} was empty!"
+    ;;
+  '')
+    _fail 'base version was empty!'
+    ;;
+esac
+_info "BASE_VERSION=${base_version}"
+
+case "$version_to_ref_sed_script" in
+  @*)
+    _info 'looking up VERSION_TO_REF from file...'
+    _version_to_ref_script_file=${version_to_ref_sed_script#@}
+    test -r "$_version_to_ref_script_file" \
+      || _fail "could not find version-to-ref script file at ${_version_to_ref_script_file}!"
+    _version_to_ref_script_contents=`cat "$_version_to_ref_script_file"`
+    test x"$_version_to_ref_script_contents" != x \
+      || _fail "version-to-ref script file at ${_version_to_ref_script_file} was empty!"
+    _info "VERSION_TO_REF=@${_version_to_ref_script_file}"
+    ;;
+  '')
+    _fail 'version-to-ref script was empty!'
+    ;;
+  *)
+    _info "VERSION_TO_REF=${version_to_ref_sed_script}"
+    ;;
+esac
+
+case "$local_modification_suffix" in
+  @*)
+    _info 'looking up local modification suffix from file...'
+    _local_modification_suffix_file=${local_modification_suffix#@}
+    test -r "$_local_modification_suffix_file" \
+      || _fail "could not find local modification suffix file at ${_local_modification_suffix_file}!"
+    local_modification_suffix=`cat "$_local_modification_suffix_file"`
+    test x"$local_modification_suffix" != x \
+      || _fail "local modification suffix file at ${_local_modification_suffix_file} was empty!"
+    ;;
+  '')
+    _fail 'local modification suffix was empty!'
+    ;;
+esac
+_info "LOCAL_MODIFICATION_SUFFIX=${local_modification_suffix}"
+
+export EXIT_CODE=3
+
+_info 'processing exe env vars...'
+
+_info 'finding git...'
+_info "GIT <= ${_defaulted_git}"
+eval "`EXE_VAR=GIT _compute_exe_path "${_defaulted_git}"`"
+_info "GIT='${GIT}'"
+
+_info 'finding sed...'
+_info "SED <= ${_defaulted_sed}"
+eval "`EXE_VAR=SED _compute_exe_path "${_defaulted_sed}"`"
+_info "SED='${SED}'"
+
+_execute_sed_with_debug() {
+  case "$verbosity" in
+    trace)
+      export _tmp_in_file=`mktemp -p "$PWD"`
+      _log "created temporary input file at '${_tmp_in_file}'"
+      (
+        cat > "$_tmp_in_file"
+        _log < "$_tmp_in_file" <<EOF
+\$SED invocation args:
+------------------------
+"$SED" --debug $@
+------------------------
+\$SED invocation input:
+`cat < "$_tmp_in_file"`
+------------------------
+\$SED invocation output:
+========================
+`"$SED" --debug "$@"`
+========================
+EOF
+        "$SED" "$@" < "$_tmp_in_file"
+      )
+      _rc=$?
+      rm -fv "$_tmp_in_file" | _log
+      return $_rc
+      ;;
+    info)
+      _log <<EOF
+\$SED invocation args:
+------------------------
+"$SED" $@
+========================
+EOF
+      ;;
+  esac
+  "$SED" "$@"
+}
+
+export EXIT_CODE=4
+
+_info 'beginning logic...'
+
+_info 'determining status of the repo and the HEAD commit...'
+# If there is no git commit in the entire history at the current checkout, also pull out.
+test "`"$GIT" log -1 --pretty=format:x . 2>&1`" = x \
+  || _fail 'the current checkout has no commit history yet!'
+export checksum=`"$GIT" rev-parse HEAD`
+_info "checksum=${checksum} (translated from HEAD)"
+
+export EXIT_CODE=5
+
+# The "properly" formatted version string that we will be comparing against.
+_basis_ref=
+
+_transform_version_to_ref() {
+  case "$1" in
+    @*)
+      _execute_sed_with_debug -n -E -f "${1#@}"
+      ;;
+    *)
+      _execute_sed_with_debug -n -E "$1"
+      ;;
+  esac
+}
+
+export base_version=$base_version
+export version_to_ref_sed_script=$version_to_ref_sed_script
+export _basis_ref=`printf '%s\n' "$base_version" | _transform_version_to_ref "$version_to_ref_sed_script"`
+
+test x"$_basis_ref" = x && _fail <<EOF
+base reference computed by sed script ${version_to_ref_sed_script}
+from base version ${base_version}
+was empty!
+EOF
+_info "_basis_ref=${_basis_ref}"
+
+export EXIT_CODE=6
+
+_info <<EOF
+ensuring our basis reference:
+------------------------
+_basis_ref=${_basis_ref}
+------------------------
+conforms to the requirements specified:
+------------------------
+require_tag=${require_tag}
+require_tag_annotated=${require_tag_annotated}
+require_branch=${require_branch}
+------------------------
+EOF
+# We need a ref matching the annotated prior version file.
+_basis_checksum=
+if test x"$require_tag" = xy; then
+  if test x"$require_tag_annotated" = xy; then
+    # This will print a message to stderr upon failure, e.g.:
+    # > error: HEAD^{tag}: expected tag type, but the object dereferences to tree type
+    _tag_id=`"$GIT" rev-parse --verify "${_basis_ref}^{tag}"` \
+      || _fail <<EOF
+could not locate any annotated tag matching the expected reference '${_basis_ref}'
+from '${base_version}'!
+EOF
+    _basis_checksum=`"$GIT" rev-parse --verify "${_tag_id}^{commit}"` \
+      || _fail "_tag_id='${_tag_id}' did not map to commit object!"
+  else
+    # This will print a message to stderr upon failure, e.g.:
+    # > fatal: Needed a single revision
+    _basis_checksum=`"$GIT" rev-parse --verify "refs/tags/${_basis_ref}^{commit}"` \
+      || _fail <<EOF
+could not locate any tag matching the expected reference '${_basis_ref}'
+from '${base_version}'!
+EOF
+  fi
+elif test x"$require_branch" = xy; then
+  # This will print a message to stderr upon failure, e.g.:
+  # > fatal: Needed a single revision
+  _basis_checksum=`"$GIT" rev-parse --verify "refs/heads/${_basis_ref}^{commit}"` \
+    || _fail <<EOF
+could not locate any branch matching the expected reference '${_basis_ref}'
+from '${base_version}'!
+EOF
+else
+  # This will print a message to stderr upon failure, e.g.:
+  # > fatal: Needed a single revision
+  _basis_checksum=`"$GIT" rev-parse --verify "${_basis_ref}^{commit}"` \
+    || _fail <<EOF
+could not locate any object of any type matching the refspec '${_basis_ref}'
+from '${base_version}'!
+EOF
+fi
+export _basis_checksum=$_basis_checksum
+_info <<EOF
+---------------------------------
+mapped basis refspec to checksum:
+---------------------------------
+_basis_ref=${_basis_ref}
+_basis_checksum=${_basis_checksum}
+---------------------------------
+EOF
+export EXIT_CODE=7
+
+# Now we're more or less in business, and we can expect to produce some sort of useful output.
+export local_modification_suffix=$local_modification_suffix
+export _basis_ref=$_basis_ref
+export require_routed=$require_routed
+export require_unmodified=$require_unmodified
+
+_info <<EOF
+determining whether there are any local modifications compared to:
+--------------------
+checksum=${checksum}
+--------------------
+given the following requirement:
+--------------------
+require_unmodified=${require_unmodified}
+--------------------
+EOF
+"$GIT" update-index --refresh > /dev/null 2>&1
+mod_suffix=
+modified=`exec 2>/dev/null;"$GIT" diff-index --name-only "$checksum"` || modified=
+case "$modified" in
+  ''|'configure') # Allow changes to the configure script itself to avoid breaking the cache key.
+    export mod_suffix=
+  ;;
+  *) # Append the suffix!
+    test x"$require_unmodified" = xy \
+      && _fail 'unstashed modifications in the current worktree!'
+    _warn <<EOF
+${my_name}: unstashed modifications in the current worktree:
+${my_name}: applying suffix '${local_modification_suffix}'!
+EOF
+    export mod_suffix=$local_modification_suffix
+    ;;
+esac
+_info "mod_suffix=${mod_suffix:- (unset)}"
+
+export EXIT_CODE=8
+
+_info <<EOF
+determining the routing and distance relationships from the basis reference:
+----------------------------------
+checksum=${checksum}
+_basis_checksum=${_basis_checksum}
+----------------------------------
+given the following requirement:
+----------------------------------
+require_routed=${require_routed}
+----------------------------------
+EOF
+
+_sed_match_numeric_distance() {
+  _execute_sed_with_debug -n -E '/^[0-9]+$/p'
+}
+_ensure_numeric_distance() {
+  _filtered=`printf '%s\n' "$1" | _sed_match_numeric_distance`
+  test x"$_filtered" = x"$1"
+}
+
+routing_failed=
+distance=
+if "$GIT" merge-base --is-ancestor "$_basis_checksum" "$checksum"; then
+  export routing_failed=no
+  _info 'direct parent relationship established! calculating distance...'
+  distance=`"$GIT" rev-list --no-merges "${_basis_checksum}..${checksum}" | wc -l`
+  case "$distance" in
+    0)
+      _info 'distance is zero. ensuring that the checksums match...'
+
+      if test "$_basis_checksum" = "$checksum"; then
+        _info 'the checksums match!'
+        export distance=0
+      else
+        _fail <<EOF
+the distance from basis ref to HEAD is zero, but the checksums do not match!
+========================
+checksum=${checksum}
+_basis_ref=${_basis_ref}
+_basis_checksum=${_basis_checksum}
+========================
+EOF
+      fi
+      ;;
+    '')
+      _fail 'distance calculation failed somehow! (empty output)'
+      ;;
+    *)
+      _ensure_numeric_distance "$distance" \
+        || _fail "non-numeric distance encountered: '$1'"
+      export distance=$distance
+      ;;
+  esac
+else
+  _warn <<EOF
+${my_name}: direct parent relationship was NOT established!
+EOF
+  if test x"$require_routed" = xy; then
+    _fail <<EOF
+could not establish a direct route from basis ref to checksum:
+========================
+checksum=${checksum}
+_basis_ref=${_basis_ref}
+========================
+EOF
+  fi
+  export routing_failed=yes
+fi
+export routing_failed=${routing_failed:-no}
+
+export EXIT_CODE=9
+
+_info <<EOF
+-----------------------
+our final calculations:
+-----------------------
+base_version='${base_version}'
+distance=`test x"$routing_failed" = xno && printf '%s\n' "$distance" || printf ' (routing failed)'`
+checksum=${checksum}
+mod_suffix=`test x"$mod_suffix" = x && printf ' (unset)\n' || printf "'%s'\n" "$mod_suffix"`
+routing_failed=${routing_failed}
+=======================
+EOF
+
+case "$routing_failed" in
+  yes)
+    _warn <<EOF
+${my_name}: we failed to find a route, so our distance is unusable:
+${my_name}: -----------------------------------------
+${my_name}: distance=${distance:-' (routing failed)'}
+${my_name}: -----------------------------------------
+${my_name}: and we're throwing away:
+${my_name}: -----------------------------------------
+${my_name}: base_version=${base_version}
+${my_name}: =========================================
+EOF
+    printf '%s%s\n' "$checksum" "$mod_suffix"
+    ;;
+  no)
+    _info <<EOF
+we had a successful route with:
+-------------------------------
+distance=${distance}
+===============================
+EOF
+    printf '%s.%s+%s%s\n' "$base_version" "$distance" "$checksum" "$mod_suffix"
+    ;;
+  *)
+    _fail <<EOF
+inexplicable (neither 'yes' nor 'no') value for:
+----------------------------------
+routing_failed='${routing_failed}'
+----------------------------------
+failing just in case something horribly wrong has just occurred!
+==================================
+EOF
+    ;;
+esac
+
+# Local variables:
+# eval: (add-hook 'before-save-hook 'time-stamp nil t)
+# time-stamp-start: "scriptversion="
+# time-stamp-format: "%Y-%02m-%02d.%02H"
+# time-stamp-time-zone: "UTC0"
+# time-stamp-end: "; # UTC"
+# End:
