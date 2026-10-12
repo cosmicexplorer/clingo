@@ -36,6 +36,8 @@ function _declare-globals {
 }
 
 function _clean {
+  setopt local_options
+  set -x
   rm -rf "$_py_install_dir"
   rm -rf "$_build_dir" "$_install_dir"
   if [[ -v DEINIT && -d .git/modules ]]; then
@@ -49,6 +51,8 @@ function _clean {
 }
 
 function _prepare-build {
+  setopt local_options
+  set -x
   if [[ -v UPDATE ]]; then
     git submodule update --init --recursive
   fi
@@ -83,7 +87,7 @@ function _configure-build {
   pushd "$_build_dir" \
     && cmake -S.. \
       -DCLINGO_BUILD_WITH_PYTHON=ON -DCLINGO_BUILD_WITH_LUA=OFF -DCLINGO_BUILD_APPS=ON -DCLINGO_MANAGE_RPATH=ON \
-      -DCLINGO_REQUIRE_PYTHON=ON -DCLINGO_BUILD_SHARED=ON -DCLINGO_BUILD_PY_SHARED=ON -DCLINGO_INSTALL_LIB=ON -DPYCLINGO_USE_CFFI=OFF -DPYCLINGO_DYNAMIC_LOOKUP=OFF \
+      -DCLINGO_BUILD_SHARED=ON -DCLINGO_BUILD_STATIC=OFF -DCLINGO_INSTALL_LIB=ON \
       -DCLINGO_BUILD_REVISION="$_build_rev" \
       -DCLINGO_PYTHON_VERSION":LIST=${_py_ver};EXACT" \
       -DCMAKE_C_COMPILER:FILEPATH="$_cc" -DCMAKE_CXX_COMPILER:FILEPATH="$_cxx" \
@@ -97,7 +101,6 @@ function _configure-build {
       -DCMAKE_CXX_FLAGS="${(j: :)opt_flags[@]} ${(j: :)lto_flags[@]} ${(j: :)warning_flags[@]}" \
       -DCMAKE_EXE_LINKER_FLAGS="${(j: :)ld_flags[@]}" \
       -DCMAKE_SHARED_LINKER_FLAGS="${(j: :)ld_flags[@]}" \
-      -DCMAKE_STATIC_LINKER_FLAGS="${(j: :)ld_flags[@]}" \
       -DCMAKE_MODULE_LINKER_FLAGS="${(j: :)ld_flags[@]}" \
     && popd
 }
